@@ -1,8 +1,6 @@
 import logging
 import os
-import http.client
-import json
-from base64 import b64encode
+from jira import JIRA
 
 try:
     from alerta.plugins import app  # alerta >= 5.0
@@ -16,43 +14,29 @@ LOG = logging.getLogger('alerta.plugins.jira')
 # retrieve plugin configurations
 JIRA_URL = app.config.get('JIRA_URL') or os.environ.get('JIRA_URL')
 JIRA_PROJECT = app.config.get('JIRA_PROJECT') or os.environ.get('JIRA_PROJECT')
+JIRA_API_TOKEN = app.config.get('JIRA_API_TOKEN') or os.environ.get('JIRA_API_TOKEN')
 JIRA_USER = app.config.get('JIRA_USER') or os.environ.get('JIRA_USER')
-JIRA_PASS = app.config.get('JIRA_PASS') or os.environ.get('JIRA_PASS')
+JIRA_ISSUE_TYPE = app.config.get('JIRA_ISSUE_TYPE') or os.environ.get('JIRA_ISSUE_TYPE')
+
+if not JIRA_ISSUE_TYPE:
+    JIRA_ISSUE_TYPE = "Task"
 
 class JiraCreate(PluginBase):
 
     def _sendjira(self, host, event, value, chart, text, severity):
         LOG.info('JIRA: Create task ...')
-        userpass = "%s:%s" %(JIRA_USER, JIRA_PASS)
-        userAndPass = b64encode(bytes(userpass, "utf-8")).decode("ascii")
-        LOG.debug('JIRA_URL: {}'.format(JIRA_URL))
-        conn = http.client.HTTPSConnection("%s" %(JIRA_URL))
-        
-        payload_dict = {
-            "fields": {
-                "project":
-                {
-                    "key": "%s" %(JIRA_PROJECT)
-                },
-                "summary": "Server %s: alert %s in chart %s - Severity: %s" %(host.upper(), event.upper(), chart.upper(), severity.upper()),
-                "description": "The chart %s INFO: %s. \nVALUE: %s." %(chart, text, value),
-                "issuetype": {
-                    "name": "Bug"
-                },
-            }
-        }
-        payload = json.dumps(payload_dict, indent = 4)
-        headers = {
-            'Content-Type': "application/json",
-            'Authorization': "Basic %s" %  userAndPass
+
+        jira_connection = JIRA(basic_auth=(JIRA_USER, JIRA_API_TOKEN), server=JIRA_URL)
+
+        issue_dict = {
+            'project': {'key': JIRA_PROJECT},
+            "summary": "Server %s: alert %s in chart %s - Severity: %s" %(host.upper(), event.upper(), chart.upper(), severity.upper()),
+            "description": "The chart %s INFO: %s. \nVALUE: %s." %(chart, text, value),
+            'issuetype': {'name': JIRA_ISSUE_TYPE},
         }
 
-        conn.request("POST", '/rest/api/2/issue/', payload, headers)
-        res = conn.getresponse()
-        data = res.read()            
-        data = json.loads(data)
-        return data["key"]
-        
+        return jira_connection.create_issue(fields=issue_dict)
+
     # reject or modify an alert before it hits the database
     def pre_receive(self, alert):
         return alert
