@@ -18,5 +18,9 @@ setup(
         'alerta.plugins': [
             'jira = alerta_jira:JiraCreate'
         ]
-    }
+    },
+    install_requires=[
+        'jira',
+        'alerta'
+    ],
 )
