@@ -1,6 +1,8 @@
 import logging
 import os
 from jira import JIRA
+import re
+import traceback
 
 try:
     from alerta.plugins import app  # alerta >= 5.0
@@ -18,30 +20,74 @@ JIRA_API_TOKEN = app.config.get('JIRA_API_TOKEN') or os.environ.get('JIRA_API_TO
 JIRA_USER = app.config.get('JIRA_USER') or os.environ.get('JIRA_USER')
 JIRA_ISSUE_TYPE = app.config.get('JIRA_ISSUE_TYPE') or os.environ.get('JIRA_ISSUE_TYPE')
 
+# jira creation filters when alerta received
+JIRA_TRIGGER_ISSUE_RESOURCE = app.config.get('JIRA_TRIGGER_ISSUE_RESOURCE') or os.environ.get(
+    'JIRA_TRIGGER_ISSUE_RESOURCE')
+JIRA_TRIGGER_ISSUE_ENVIRONMENT = app.config.get('JIRA_TRIGGER_ISSUE_ENVIRONMENT') or os.environ.get(
+    'JIRA_TRIGGER_ISSUE_ENVIRONMENT')
+JIRA_TRIGGER_ISSUE_SEVERITY = app.config.get('JIRA_TRIGGER_ISSUE_SEVERITY') or os.environ.get(
+    'JIRA_TRIGGER_ISSUE_SEVERITY')
+JIRA_TRIGGER_ISSUE_EVENT = app.config.get('JIRA_TRIGGER_ISSUE_EVENT') or os.environ.get('JIRA_TRIGGER_ISSUE_EVENT')
+JIRA_TRIGGER_ISSUE_SERVICE = app.config.get('JIRA_TRIGGER_ISSUE_SERVICE') or os.environ.get(
+    'JIRA_TRIGGER_ISSUE_SERVICE')
+JIRA_TRIGGER_ISSUE_GROUP = app.config.get('JIRA_TRIGGER_ISSUE_GROUP') or os.environ.get('JIRA_TRIGGER_ISSUE_GROUP')
+JIRA_TRIGGER_ISSUE_VALUE = app.config.get('JIRA_TRIGGER_ISSUE_VALUE') or os.environ.get('JIRA_TRIGGER_ISSUE_VALUE')
+JIRA_TRIGGER_ISSUE_ORIGIN = app.config.get('JIRA_TRIGGER_ISSUE_ORIGIN') or os.environ.get('JIRA_TRIGGER_ISSUE_ORIGIN')
+JIRA_TRIGGER_ISSUE_TYPE = app.config.get('JIRA_TRIGGER_ISSUE_TYPE') or os.environ.get('JIRA_TRIGGER_ISSUE_TYPE')
+JIRA_TRIGGER_ISSUE_TEXT = app.config.get('JIRA_TRIGGER_ISSUE_TEXT') or os.environ.get('JIRA_TRIGGER_ISSUE_TEXT')
+
 if not JIRA_ISSUE_TYPE:
     JIRA_ISSUE_TYPE = "Task"
 
 class JiraCreate(PluginBase):
+    def _createJiraSummary(self, host, alert, chart, severity):
+        return "Server {server}: alert {alert} in chart {chart} - Severity: {severity}".format(server=host.upper(),
+                                                                                               alert=alert.upper(),
+                                                                                               chart=chart.upper(),
+                                                                                               severity=severity.upper())
 
-    def _sendjira(self, host, event, value, chart, text, severity):
+    def _create_jira(self, jira_connection, host, event, value, chart, text, severity):
         LOG.info('JIRA: Create task ...')
 
-        jira_connection = JIRA(basic_auth=(JIRA_USER, JIRA_API_TOKEN), server=JIRA_URL)
+        summary = self._createJiraSummary(host=host, alert=event, chart=chart, severity=severity)
+        description = "The chart {chart} INFO: {info}. \nVALUE: {value}.".format(chart=chart, info=text, value=value)
 
         issue_dict = {
             'project': {'key': JIRA_PROJECT},
-            "summary": "Server %s: alert %s in chart %s - Severity: %s" %(host.upper(), event.upper(), chart.upper(), severity.upper()),
-            "description": "The chart %s INFO: %s. \nVALUE: %s." %(chart, text, value),
+            "summary": summary,
+            "description": description,
             'issuetype': {'name': JIRA_ISSUE_TYPE},
         }
 
         return jira_connection.create_issue(fields=issue_dict)
 
+    def _re_check(self, pattern, value):
+        if pattern and value:
+            if re.search(pattern, str(value)):
+                LOG.debug("Jira: pattern: {pattern} matched value: {value}".format(pattern=pattern, value=value))
+                return True
+        return False
+
+    def _try_create_issue(self, alert, host, event, chart):
+        # create connection to jira api
+        jira_connection = JIRA(basic_auth=(JIRA_USER, JIRA_API_TOKEN), server=JIRA_URL)
+        # create jira ticket
+        task = self._create_jira(jira_connection, host, event, alert.value, chart, alert.text, alert.severity)
+        # add jira ticket info to event obj
+        task_url = "{url}/browse/{task}".format(url=JIRA_URL, task=task)
+        alert.attributes = {'jira':
+            {
+                'url': task_url,
+                'key': task.key,
+                'id': task.id
+            }
+        }
+        return alert
+
     # reject or modify an alert before it hits the database
     def pre_receive(self, alert):
         return alert
 
-    # after alert saved in database, forward alert to external systems
     def post_receive(self, alert):
         try:
             # if the alert is critical and don't duplicate, create task in Jira
@@ -56,23 +102,46 @@ class JiraCreate(PluginBase):
 
                 # get basic info from alert
                 host = alert.resource.split(':')[0]
-                LOG.debug("JIRA: HOST        {}".format(host))
+                LOG.debug("Jira: HOST        {}".format(host))
                 chart = ".".join(alert.event.split('.')[:-1])
-                LOG.debug("JIRA: CHART       {}".format(chart))
+                LOG.debug("Jira: CHART       {}".format(chart))
                 event = alert.event.split('.')[-1]
-                LOG.debug("JIRA: EVENT       {}".format(event))
+                LOG.debug("Jira: EVENT       {}".format(event))
 
-                # call the _sendjira and modify de text (discription)
-                task = self._sendjira(host, event, alert.value, chart, alert.text, alert.severity)
-                task_url = "https://" + JIRA_URL + "/browse/" + task
-                href = '<a href="%s" target="_blank">%s</a>' %(task_url, task)
-                alert.attributes = {'Jira Task': href}
-                return alert
+                # check filters to create ticket automatically
+                create_issue = self._re_check(JIRA_TRIGGER_ISSUE_RESOURCE, alert.resource)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_SEVERITY, alert.severity)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_ENVIRONMENT, alert.resource)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_EVENT, alert.event)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_SERVICE, alert.service)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_GROUP, alert.group)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_VALUE, alert.value)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_ORIGIN, alert.origin)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_TYPE, alert.type)
+                create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_TEXT, alert.text)
 
-        except Exception as e:
-            LOG.error('Jira: Failed to create task: %s', e)
-            return
+                if create_issue:
+                    return self._try_create_issue(alert=alert, host=host, event=event, chart=chart)
+        except Exception as ex:
+            LOG.error('Jira: Failed to create task: %s', ex)
+            LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
+        return alert
 
     # triggered by external status changes, used by integrations
     def status_change(self, alert, status, text):
         return
+
+    def take_action(self, alert, action, text):
+        # create connection to jira api
+        jira_connection = JIRA(basic_auth=(JIRA_USER, JIRA_API_TOKEN), server=JIRA_URL)
+
+        # todo parse text as json, try retrieve alerta obj
+        # if action == "refreshJira":
+        #     jira_tickets = jira_connection.search_issues("summary ~ \"{summary}\"".format(summary=text))
+        #
+        #     if len(jira_tickets) > 0:
+        #         # update the ticket
+        #         pass
+        #
+        # if action == "createJira":
+        #     pass
