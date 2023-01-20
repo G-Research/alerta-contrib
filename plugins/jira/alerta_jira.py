@@ -68,7 +68,7 @@ class JiraCreate(PluginBase):
                 return True
         return False
 
-    def _try_create_issue(self, alert, host, event, chart):
+    def _create_issue(self, alert, host, event, chart):
         # create connection to jira api
         jira_connection = JIRA(basic_auth=(JIRA_USER, JIRA_API_TOKEN), server=JIRA_URL)
         # create jira ticket
@@ -121,7 +121,7 @@ class JiraCreate(PluginBase):
                 create_issue = create_issue or self._re_check(JIRA_TRIGGER_ISSUE_TEXT, alert.text)
 
                 if create_issue:
-                    return self._try_create_issue(alert=alert, host=host, event=event, chart=chart)
+                    return self._create_issue(alert=alert, host=host, event=event, chart=chart)
         except Exception as ex:
             LOG.error('Jira: Failed to create task: %s', ex)
             LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
