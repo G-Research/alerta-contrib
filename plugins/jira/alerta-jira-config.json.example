@@ -1,0 +1,27 @@
+{
+  "user": "generalfuzz@gmail.com",
+  "url": "https://headphonejames.atlassian.net",
+  "api token": "",
+  "triggers": [
+    {
+      "matches": {
+        "event": "http(.*)"
+      },
+      "assignee": {
+        "project": "THJ",
+        "issue-type": "Task",
+        "user": "generalfuzz@gmail.com"
+      }
+    },
+    {
+      "matches": {
+        "resource": "matching(.*)"
+      },
+      "assignee": {
+        "project": "THJ",
+        "issue-type": "Task",
+        "user": "headphonejames@gmail.com"
+      }
+    }
+  ]
+}
