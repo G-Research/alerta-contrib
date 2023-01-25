@@ -20,25 +20,40 @@ LOG = logging.getLogger('alerta.plugins.jira')
 JIRA_CONFIG_JSON = app.config.get('ALERTA_JIRA_CONFIG') or os.environ.get(
     'ALERTA_JIRA_CONFIG') or "alerta-jira-config.json"
 
-# load json config
-jira_config_file = open(JIRA_CONFIG_JSON)
-jira_config = json.load(jira_config_file)
-
-# validate that required properties are defined
-required_properties = ["user", "url", "api token"]
-for required_property in required_properties:
-    if not required_property in jira_config:
-        raise RuntimeError("missing property [{}] in config file [{}] ".format(required_property, JIRA_CONFIG_JSON))
-
 alert_properties = ["resource", "severity", "environment", "event", "service", "group", "value", "origin", "type",
                     "text"]
-
 
 class JiraCreate(PluginBase):
     """
     Jira alerta plugin
     Automatically generate Jira tickets and manage create requests from API
     """
+
+    def __init__(self):
+        self.jira_config = self._load_config_from_json()
+        self._validate_config_params(self.jira_config)
+        super().__init__()
+
+    def __init__(self, config={}):
+        if config == {}:
+            config = self._load_config_from_json()
+        self.jira_config = config
+        self._validate_config_params(self.jira_config)
+        super().__init__()
+
+    def _load_config_from_json(self):
+        LOG.debug("Jira: loading json config file: {}".format(JIRA_CONFIG_JSON))
+        # load json config
+        jira_config_file = open(JIRA_CONFIG_JSON)
+        return json.load(jira_config_file)
+
+    def _validate_config_params(self, config):
+        # validate that required properties are defined
+        required_properties = ["user", "url", "api token"]
+        for required_property in required_properties:
+            if required_property not in config:
+                raise RuntimeError(
+                    "missing property [{}] in config file ".format(required_property))
 
     def _create_jira_ticket(self, alert: Alert, assignee: any):
         # create connection to jira api
@@ -72,7 +87,7 @@ class JiraCreate(PluginBase):
         task = jira_connection.create_issue(fields=issue_dict)
 
         # add jira ticket info to event obj
-        task_url = "{url}/browse/{task}".format(url=jira_config["url"], task=task)
+        task_url = "{url}/browse/{task}".format(url=self.jira_config["url"], task=task.key)
         alert.attributes = {'jira':
             {
                 'url': task_url,
@@ -108,7 +123,7 @@ class JiraCreate(PluginBase):
                 LOG.debug("Jira: TEXT        {}".format(alert.text))
 
                 # iterate through configured triggers
-                for trigger in jira_config["triggers"]:
+                for trigger in self.jira_config["triggers"]:
                     # the first match triggers jira issue creation
                     if self._check_trigger(trigger["matches"], alert):
                         return self._create_jira_ticket(alert=alert, assignee=trigger["assignee"])
@@ -122,7 +137,7 @@ class JiraCreate(PluginBase):
         return
 
     def _get_jira_connection(self):
-        return JIRA(basic_auth=(jira_config["user"], jira_config["api token"]), server=jira_config["url"])
+        return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
 
     def take_action(self, alert: Alert, action: str, text: str, **kwargs) -> Any:
         if action == "createJira":
