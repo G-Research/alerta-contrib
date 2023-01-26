@@ -106,7 +106,6 @@ class TestJiraPlugin(unittest.TestCase):
         self.__assert_jira_creation_not_executed(alert=alert)
         alert.status = 'shelved'
         self.__assert_jira_creation_not_executed(alert=alert)
-        self.__assert_jira_creation_not_executed(alert=alert)
         # test that duplicate alerts are ignored
         alert.status = 'new'
         alert.duplicate_count = 1
