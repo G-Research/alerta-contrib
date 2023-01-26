@@ -1,6 +1,6 @@
 # unit test for jira plugin
 # Path: plugins/jira/test_alerta_jira.py
-
+import json
 import unittest
 from alertaclient.models.alert import Alert
 from mock import MagicMock, mock, patch
@@ -8,35 +8,59 @@ from alerta_jira import JiraCreate
 
 
 class TestJiraPlugin(unittest.TestCase):
-    sample_jira_config = {
-        "user": "test",
-        "url": "http://wwww.example.com",
-        "api token": "test",
-        "triggers": [
-            {
-                "matches": {
-                    "event": "http(.*)"
-                },
-                "assignee": {
-                    "project": "THJ",
-                    "issue-type": "Task",
-                    "user": "generalfuzz@gmail.com"
-                }
-            },
-            {
-                "matches": {
-                    "event": "ht(.*)"
-                },
-                "assignee": {
-                    "project": "THJ",
-                    "issue-type": "Task",
-                    "user": "headphonejames@gmail.com"
-                }
-            }
-        ]
-    }
+    def __get_default_asignee(self):
+        return {
+            "project": "THJ",
+            "issue-type": "Task",
+            "assignee": "matcher@gmail.com"
+        }
 
-    def test_json_config(self):
+    def __get_default_jira_key(self):
+        return "THJ-1234"
+
+    def __get_default_jira_id(self):
+        return "jira-1234"
+
+    def __get_default_url(self):
+        return "http://wwww.example.com"
+
+    def __get_jira_config_single_match(self, matches={"event": "http(.*)"}):
+        return {
+            "user": "test",
+            "url": self.__get_default_url(),
+            "api token": "test",
+            "triggers": [
+                {
+                    "matches": matches,
+                    "assignee": self.__get_default_asignee()
+                },
+            ]
+        }
+
+    def __get_jira_config_two_matches(self,
+                                      first_match={"event": "http(.*)"},
+                                      second_match={"event": "sms(.*)"}):
+        return {
+            "user": "test",
+            "url": "http://wwww.example.com",
+            "api token": "test",
+            "triggers": [
+                {
+                    "matches": first_match,
+                    "assignee": self.__get_default_asignee()
+                },
+                {
+                    "matches": second_match,
+                    "assignee": {
+                        "project": "THJ",
+                        "issue-type": "Task",
+                        "user": "secondmatch@gmail.com"
+                    }
+                },
+            ]
+        }
+
+    def test_incomplete_json_config(self):
         # test that the required properties are defined in the json config file
         jira_config = {"user": "test"}
         with self.assertRaises(RuntimeError):
@@ -51,44 +75,173 @@ class TestJiraPlugin(unittest.TestCase):
         jira_config = {"user": "test", "url": "http://wwww.example.com", "api token": "test"}
         self.create_jira = JiraCreate(jira_config)
 
+    def __generate_alert_obj(self, status='new', duplicate_count=0):
+        return Alert(resource='test', event='http500', environment='test', severity='critical', service=['test'],
+                     group='test', value='test', text='test', tags=['test'], attributes={'test': 'test'},
+                     origin='test', type='test', raw_data='test', status=status, duplicate_count=duplicate_count,
+                     id='test')
+
+    def __generate_jira_create_obj(self, jira_config=None):
+        if not jira_config:
+            jira_config = self.__get_jira_config_single_match()
+        return JiraCreate(jira_config)
+
+    def test_pre_receieve(self):
+        alert = self.__generate_alert_obj()
+        jira = self.__generate_jira_create_obj()
+        updated_alert = jira.pre_receive(alert)
+        assert alert == updated_alert
+
+    def __assert_jira_creation_not_executed(self, alert=None, jira_obj=None):
+        if not jira_obj:
+            jira_obj = self.__generate_jira_create_obj()
+        jira_obj._get_jira_connection = mock.Mock()
+        jira_obj.post_receive(alert)
+        jira_obj._get_jira_connection.assert_not_called()
+
     def test_ignored_alerts(self):
-        alert = Alert(resource='test', event='http500', environment='test', severity='critical', service=['test'],
-                      group='test', value='test', text='test', tags=['test'], attributes={'test': 'test'},
-                      origin='test', type='test', raw_data='test', status='ack', duplicate_count=0, id='test')
-        jira = JiraCreate(self.sample_jira_config)
-        jira._get_jira_connection = mock.Mock()
-        jira.post_receive(alert)
-        jira._get_jira_connection.assert_not_called()
-
-        alert.duplicate_count = 1
+        # test that alerts with 'ack', 'shelved', and 'closed' statue are ignored
+        alert = self.__generate_alert_obj(status='closed')
+        alert.status = 'ack'
+        self.__assert_jira_creation_not_executed(alert=alert)
+        alert.status = 'shelved'
+        self.__assert_jira_creation_not_executed(alert=alert)
+        self.__assert_jira_creation_not_executed(alert=alert)
+        # test that duplicate alerts are ignored
         alert.status = 'new'
+        alert.duplicate_count = 1
+        self.__assert_jira_creation_not_executed(alert=alert)
 
-        jira = JiraCreate(self.sample_jira_config)
-        jira._get_jira_connection = mock.Mock()
-        jira.post_receive(alert)
-        jira._get_jira_connection.assert_not_called()
+    def __assert_jira_creation_not_executed_single_match(self, matches=None):
+        jira_config = self.__get_jira_config_single_match(matches=matches)
+        self.__assert_jira_create_not_triggered(jira_config)
 
-    def test_post_receive_valid(self):
-        alert = Alert(id='test', resource='test', event='http500', environment='test', severity='critical',
-                      service=['test'],
-                      group='test', value='test', text='test', tags=['test'], attributes={'test': 'test'},
-                      origin='test', type='test', raw_data='test', status='new', duplicate_count=0)
+    def __assert_jira_create_not_triggered(self, jira_config):
+        alert = self.__generate_alert_obj()
+        jira_obj = self.__generate_jira_create_obj(jira_config=jira_config)
+        self.__assert_jira_creation_not_executed(alert=alert, jira_obj=jira_obj)
 
-        jira = JiraCreate(self.sample_jira_config)
-        with mock.patch.object(jira, '_get_jira_connection') as mock_get_jira_connection:
-            class JiraIssue:
-                def __init__(self):
-                    self.id = 'jira-id'
-                    self.key = 'jira-1234'
+    def test_post_receive_not_creating_jira(self):
+        self.__assert_jira_creation_not_executed_single_match(matches={"resource": "cr.tical"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"event": "sms(.*)"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"event": "http501"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"event": "h(.*)1"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"environment": "production"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"environment": "...s"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"severity": "urgent"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"severity": ".o(.*)"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"group": "top tier"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"group": "a(.*)"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"value": "worthy"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"value": "(.*)a"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"text": "was destroyed"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"text": "was(.*)"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"origin": "story"})
+        self.__assert_jira_creation_not_executed_single_match(matches={"service": 'production'})
+        self.__assert_jira_creation_not_executed_single_match(matches={"service": '(.*)w'})
+        self.__assert_jira_creation_not_executed_single_match(matches={"service": "test", "origin": "story"})
+        self.__assert_jira_creation_not_executed_single_match(
+            matches={"status": "test", "type": "test", "origin": "test", "service": "tast"})
 
-            mock_get_jira_connection.return_value.create_issue = MagicMock(return_value=JiraIssue())
-            updated_alert = jira.post_receive(alert)
-            assert updated_alert.attributes['jira']['id'] == 'jira-id'
+    def __create_jira_issue_mock(self, jira_id, jira_key):
+        class JiraIssue:
+            def __init__(self):
+                self.id = jira_id
+                self.key = jira_key
+
+        return JiraIssue()
+
+    def __assert_post_receive_creates_jira_connection(self, jira_config=None):
+        alert = self.__generate_alert_obj()
+        jira_obj = self.__generate_jira_create_obj(jira_config=jira_config)
+        jira_id = self.__get_default_jira_id()
+        jira_key = self.__get_default_jira_key()
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, jira_key)
+            mock_get_jira_connection.return_value.create_issue = MagicMock(return_value=jira_issue)
+            updated_alert = jira_obj.post_receive(alert)
             mock_get_jira_connection.assert_called()
+            # test that the jira id is added to the alert attributes
+            assert updated_alert.attributes['jira']['id'] == jira_id
+            # test that the jira id is added to the alert attributes
+            assert updated_alert.attributes['jira']['url'] == "{}/browse/{}".format(self.__get_default_url(), jira_key)
+            assert updated_alert.attributes['jira']['key'] == jira_key
+    def __assert_jira_single_matching_config(self, matches=None):
+        jira_config = self.__get_jira_config_single_match(matches={"resource": "test"})
+        self.__assert_post_receive_creates_jira_connection(jira_config=jira_config)
 
+    def test_post_receive_creates_jira(self):
+        self.__assert_post_receive_creates_jira_connection()
+        self.__assert_jira_single_matching_config(matches={"service": "test"})
+        self.__assert_jira_single_matching_config(matches={"service": "(.*)"})
+        self.__assert_jira_single_matching_config(matches={"service": "(.*)t"})
+        self.__assert_jira_single_matching_config(matches={"event": "http500"})
+        self.__assert_jira_single_matching_config(matches={"event": "http([0-9]{3})"})
+        self.__assert_jira_single_matching_config(matches={"event": "(.*)500"})
+        self.__assert_jira_single_matching_config(matches={"environment": "test"})
+        self.__assert_jira_single_matching_config(matches={"environment": "(.*)"})
+        self.__assert_jira_single_matching_config(matches={"environment": "(.*)t"})
+        self.__assert_jira_single_matching_config(matches={"severity": "critical"})
+        self.__assert_jira_single_matching_config(matches={"severity": "(.*)"})
+        self.__assert_jira_single_matching_config(matches={"severity": "c(.*)"})
+        self.__assert_jira_single_matching_config(matches={"severity": "c[a-z]*"})
+        self.__assert_jira_single_matching_config(matches={"severity": "cr.tical"})
+        self.__assert_jira_single_matching_config(matches={"service": "test"})
+        self.__assert_jira_single_matching_config(matches={"service": "test", "event": "http500"})
+        self.__assert_jira_single_matching_config(matches={"service": "test", "event": "http500",
+                                                           "environment": "test"})
+        self.__assert_jira_single_matching_config(matches={"group": "test"})
+        self.__assert_jira_single_matching_config(matches={"value": "test"})
+        self.__assert_jira_single_matching_config(matches={"text": "test"})
+        self.__assert_jira_single_matching_config(matches={"origin": "test"})
+        self.__assert_jira_single_matching_config(matches={"type": "test"})
+        self.__assert_jira_single_matching_config(matches={"status": "test"})
+        self.__assert_jira_single_matching_config(
+            matches={"status": "test", "type": "test", "origin": "test", "service": "test"})
 
-    def test_jira_plugin(self):
-        self.assertTrue(True)
+    def test_two_match_defined(self):
+        # positive tests
+        jira_config = self.__get_jira_config_two_matches(
+            first_match={"service": "tast"}, second_match={"service": ".*"})
+        self.__assert_post_receive_creates_jira_connection(jira_config=jira_config)
+        jira_config = self.__get_jira_config_two_matches(
+            first_match={"service": "test"}, second_match={"service": "s.*"})
+        self.__assert_post_receive_creates_jira_connection(jira_config=jira_config)
+        jira_config = self.__get_jira_config_two_matches(
+            first_match={"service": "nodles"}, second_match={"service": ".*t"})
+        self.__assert_post_receive_creates_jira_connection(jira_config=jira_config)
+        # negative tests
+        jira_config = self.__get_jira_config_two_matches(
+            first_match={"service": "tast"}, second_match={"service": "j.*"})
+        self.__assert_jira_create_not_triggered(jira_config=jira_config)
+        jira_config = self.__get_jira_config_two_matches(
+            first_match={"service": "tester"}, second_match={"service": "..et"})
+        self.__assert_jira_create_not_triggered(jira_config=jira_config)
+
+    def test_take_action(self):
+        alert = self.__generate_alert_obj()
+        jira_obj = self.__generate_jira_create_obj()
+        assignee_str = json.dumps(self.__get_default_asignee())
+        jira_id = self.__get_default_jira_id()
+        jira_key = self.__get_default_jira_key()
+
+        # negative test
+        jira_obj._get_jira_connection = mock.Mock()
+        updated_alert = jira_obj.take_action(alert, "casreateJira", assignee_str)
+        jira_obj._get_jira_connection.assert_not_called()
+        assert alert == updated_alert
+
+        # positive test
+        jira_obj = self.__generate_jira_create_obj()
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            mock_get_jira_connection.return_value.create_issue = MagicMock(return_value=jira_issue)
+            updated_alert = jira_obj.take_action(alert, "createJira", assignee_str)
+            mock_get_jira_connection.assert_called()
+            # test that the jira id is added to the alert attributes
+            assert updated_alert.attributes['jira']['id'] == jira_id
+            assert updated_alert.attributes['jira']['url'] == "{}/browse/{}".format(self.__get_default_url(), jira_key)
+            assert updated_alert.attributes['jira']['key'] == jira_key
 
 
 if __name__ == '__main__':

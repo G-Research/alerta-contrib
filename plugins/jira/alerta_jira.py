@@ -106,7 +106,12 @@ class JiraCreate(PluginBase):
             if alert_property in trigger:
                 prop_value = getattr(alert, alert_property)
                 if prop_value:
-                    if not re.search(trigger[alert_property], prop_value):
+                    # check if property is a list or a string
+                    if isinstance(prop_value, list):
+                        for value in prop_value:
+                            if not re.search(trigger[alert_property], value):
+                                return False
+                    elif not re.search(trigger[alert_property], prop_value):
                         return False
         return True
 
@@ -155,3 +160,4 @@ class JiraCreate(PluginBase):
     #
     # if action == "removeJira":
     #     pass
+        return alert
