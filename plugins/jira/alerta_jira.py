@@ -56,6 +56,10 @@ class JiraCreate(PluginBase):
                 raise RuntimeError(
                     "missing property [{}] in config file ".format(required_property))
 
+    def __create_jira_url(self, key: str):
+        return "{url}/browse/{task}".format(url=self.jira_config["url"], task=key)
+
+
     def _create_jira_ticket(self, alert: Alert, assignee: any):
         # create connection to jira api
         jira_connection = self._get_jira_connection()
@@ -88,10 +92,9 @@ class JiraCreate(PluginBase):
         task = jira_connection.create_issue(fields=issue_dict)
 
         # add jira ticket info to event obj
-        task_url = "{url}/browse/{task}".format(url=self.jira_config["url"], task=task.key)
         alert.attributes = {'jira':
             {
-                'url': task_url,
+                'url': self.__create_jira_url(task.key),
                 'key': task.key,
                 'id': task.id
             }
@@ -161,21 +164,20 @@ class JiraCreate(PluginBase):
                 return updated_alert
         if action == "attachJira":
             # check if key is valid
-            key = text.split("/")[-1]
-            if key:
-                jira_connection = self._get_jira_connection()
-                try:
-                    # check if jira ticket exists
-                    issue = jira_connection.issue(key)
-                    if issue:
-                        # attach jira ticket to alert
-                        updated_alert = copy.deepcopy(alert)
-                        updated_alert.attributes["jira"] = {
-                            "key": key,
-                            "url": text,
-                            "id": issue.id
-                        }
-                        return updated_alert
-                except JIRAError:
-                    LOG.debug("Jira issue: {} not found".format(key))
+            jira_connection = self._get_jira_connection()
+            LOG.debug("Jira: attach issue, looking up key: {}".format(text))
+            try:
+                # check if jira ticket exists
+                issue = jira_connection.issue(text)
+                if issue:
+                    # attach jira ticket to alert
+                    updated_alert = copy.deepcopy(alert)
+                    updated_alert.attributes["jira"] = {
+                        "key": text,
+                        "url": self.__create_jira_url(text),
+                        "id": issue.id
+                    }
+                    return updated_alert
+            except JIRAError:
+                LOG.debug("Jira issue: {} not found".format(text))
         return alert

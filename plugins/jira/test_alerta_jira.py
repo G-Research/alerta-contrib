@@ -5,6 +5,7 @@ import unittest
 from alertaclient.models.alert import Alert
 from mock import MagicMock, mock, patch
 from alerta_jira import JiraCreate
+from jira import JIRAError
 
 
 class TestJiraPlugin(unittest.TestCase):
@@ -24,8 +25,8 @@ class TestJiraPlugin(unittest.TestCase):
     def __get_default_url(self):
         return "http://wwww.example.com"
 
-    def __get_default_browse_url(self):
-        return "{}/browse/{}".format(self.__get_default_url(), self.__get_default_jira_key())
+    def __get_browse_url(self, url, key):
+        return "{}/browse/{}".format(url, key)
 
     def __get_jira_config_single_match(self, matches={"event": "http(.*)"}):
         return {
@@ -154,7 +155,7 @@ class TestJiraPlugin(unittest.TestCase):
             # test that the jira id is added to the alert attributes
             assert updated_alert.attributes['jira']['id'] == jira_id
             # test that the jira id is added to the alert attributes
-            assert updated_alert.attributes['jira']['url'] == self.__get_default_browse_url()
+            assert updated_alert.attributes['jira']['url'] == self.__get_browse_url(self.__get_default_url(), jira_key)
             assert updated_alert.attributes['jira']['key'] == jira_key
 
     def __assert_jira_single_matching_config(self, matches=None):
@@ -193,6 +194,11 @@ class TestJiraPlugin(unittest.TestCase):
             first_match={"service": "tester"}, second_match={"service": "..et"})
         self.__assert_jira_create_not_triggered(jira_config=jira_config)
 
+    def __assert_jira_attributes_match_expected_jira_obj(self, jira_id, jira_key, updated_alert):
+        assert updated_alert.attributes['jira']['id'] == jira_id
+        assert updated_alert.attributes['jira']['url'] == self.__get_browse_url(self.__get_default_url(), jira_key)
+        assert updated_alert.attributes['jira']['key'] == jira_key
+
     def test_take_action_create_jira(self):
         alert = self.__generate_alert_obj()
         jira_obj = self.__generate_jira_create_obj()
@@ -214,13 +220,13 @@ class TestJiraPlugin(unittest.TestCase):
             updated_alert = jira_obj.take_action(alert, "createJira", assignee_str)
             mock_get_jira_connection.assert_called()
             # test that the jira id is added to the alert attributes
-            assert updated_alert.attributes['jira']['id'] == jira_id
-            assert updated_alert.attributes['jira']['url'] == "{}/browse/{}".format(self.__get_default_url(), jira_key)
-            assert updated_alert.attributes['jira']['key'] == jira_key
+            self.__assert_jira_attributes_match_expected_jira_obj(jira_id, jira_key, updated_alert)
 
     def test_take_action_detach_jira(self):
         alert = self.__generate_alert_obj()
-        jira_attributes = {'id': self.__get_default_jira_id(), 'key': self.__get_default_jira_key(), 'url': self.__get_default_browse_url()}
+        jira_attributes = {'id': self.__get_default_jira_id(),
+                           'key': self.__get_default_jira_key(),
+                           'url': self.__get_browse_url(self.__get_default_url(), self.__get_default_jira_key())}
         alert.attributes['jira'] = jira_attributes
         jira_attributes_str = json.dumps(jira_attributes)
         jira_obj = self.__generate_jira_create_obj()
@@ -229,7 +235,10 @@ class TestJiraPlugin(unittest.TestCase):
         updated_alert = jira_obj.take_action(alert, "dewtachJira", jira_attributes_str)
         assert alert == updated_alert
 
-        bad_jira_attributes = {'id': self.__get_default_jira_id(), 'key': 'fake-key', 'url': self.__get_default_browse_url()}
+        bad_jira_attributes = {'id': self.__get_default_jira_id(),
+                               'key': 'fake-key',
+                               'url': self.__get_browse_url(self.__get_default_url(),
+                                                            self.__get_default_jira_key())}
         bad_jira_attributes_str = json.dumps(bad_jira_attributes)
         updated_alert = jira_obj.take_action(alert, "detachJira", bad_jira_attributes_str)
         assert alert == updated_alert
@@ -239,6 +248,29 @@ class TestJiraPlugin(unittest.TestCase):
         assert alert != updated_alert
         assert not hasattr(updated_alert.attributes, "jira")
 
+    def test_take_action_attach_jira(self):
+        alert = self.__generate_alert_obj()
+        jira_attributes = {'id': self.__get_default_jira_id(),
+                           'key': self.__get_default_jira_key(),
+                           'url': self.__get_browse_url(self.__get_default_url(),
+                                                        self.__get_default_jira_key())}
+        alert.attributes['jira'] = jira_attributes
+        jira_obj = self.__generate_jira_create_obj()
+        jira_id = self.__get_default_jira_id()
+        jira_key = self.__get_default_jira_key()
+
+        # negative tests
+        updated_alert = jira_obj.take_action(alert, "attacgsJira", jira_key)
+        assert alert == updated_alert
+
+        # positive test
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            mock_get_jira_connection.return_value.issue = MagicMock(return_value=jira_issue)
+            updated_alert = jira_obj.take_action(alert, "attachJira", jira_key)
+            assert alert != updated_alert
+            # test that the jira id is added to the alert attributes
+            self.__assert_jira_attributes_match_expected_jira_obj(jira_id, jira_key, updated_alert)
 
 if __name__ == '__main__':
     unittest.main()
