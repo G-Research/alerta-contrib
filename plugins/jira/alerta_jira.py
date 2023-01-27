@@ -1,7 +1,8 @@
 import json
+import copy
 import logging
 import os
-from jira import JIRA
+from jira import JIRA, JIRAError
 import re
 import traceback
 from typing import Any
@@ -145,19 +146,36 @@ class JiraCreate(PluginBase):
         return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
 
     def take_action(self, alert: Alert, action: str, text: str, **kwargs) -> Any:
+        LOG.debug("Jira: take_action alert: {} action: {} text {}".format(alert.id, action, text))
         if action == "createJira":
             # create connection to jira api
-            assignment_data = json.loads(text)
-            LOG.debug("Jira: take_action alert: {} action: {} data {}".format(alert.id, action, assignment_data))
-            return self._create_jira_ticket(alert=alert, assignee=assignment_data)
-
-    # if action == "refreshJira":
-    #     jira_tickets = jira_connection.search_issues("summary ~ \"{summary}\"".format(summary=text))
-    #
-    #     if len(jira_tickets) > 0:
-    #         # update the ticket
-    #         pass
-    #
-    # if action == "removeJira":
-    #     pass
+            data = json.loads(text)
+            return self._create_jira_ticket(alert=alert, assignee=data)
+        if action == "detachJira":
+            # check if jira is attached to ticket
+            data = json.loads(text)
+            if data["key"] == alert.attributes["jira"]["key"]:
+                # detach jira ticket from alert without modifying the initial alert obj
+                updated_alert = copy.deepcopy(alert)
+                del updated_alert.attributes["jira"]
+                return updated_alert
+        if action == "attachJira":
+            # check if key is valid
+            key = text.split("/")[-1]
+            if key:
+                jira_connection = self._get_jira_connection()
+                try:
+                    # check if jira ticket exists
+                    issue = jira_connection.issue(key)
+                    if issue:
+                        # attach jira ticket to alert
+                        updated_alert = copy.deepcopy(alert)
+                        updated_alert.attributes["jira"] = {
+                            "key": key,
+                            "url": text,
+                            "id": issue.id
+                        }
+                        return updated_alert
+                except JIRAError:
+                    LOG.debug("Jira issue: {} not found".format(key))
         return alert
