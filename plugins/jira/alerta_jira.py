@@ -29,6 +29,7 @@ class JiraCreate(PluginBase):
     Jira alerta plugin
     Automatically generate Jira tickets and manage create requests from API
     """
+    _jira_finished_transition_str = "Done"
 
     def __init__(self):
         self.jira_config = self._load_config_from_json()
@@ -50,7 +51,7 @@ class JiraCreate(PluginBase):
 
     def _validate_config_params(self, config):
         # validate that required properties are defined
-        required_properties = ["user", "url", "api token"]
+        required_properties = ["user", "url", "api token", "finished transition"]
         for required_property in required_properties:
             if required_property not in config:
                 raise RuntimeError(
@@ -58,7 +59,6 @@ class JiraCreate(PluginBase):
 
     def __create_jira_url(self, key: str):
         return "{url}/browse/{task}".format(url=self.jira_config["url"], task=key)
-
 
     def _create_jira_ticket(self, alert: Alert, assignee: any):
         # create connection to jira api
@@ -143,10 +143,45 @@ class JiraCreate(PluginBase):
 
     # triggered by external status changes, used by integrations
     def status_change(self, alert, status, text):
-        return
+        LOG.debug("Jira: status change: {} alert status: {} text: {}".format(alert.id, status, text))
+        return alert
+
+    def delete(self, alert: 'Alert', **kwargs) -> bool:
+        if alert.attributes and 'jira' in alert.attributes:
+            jira_key = alert.attributes["jira"]["key"]
+            jira_connection = self._get_jira_connection()
+            jira_issue = jira_connection.issue(jira_key)
+            if jira_issue:
+                transitions = jira_connection.transitions(jira_issue)
+                for t in transitions:
+                    if t["name"] == self._jira_finished_transition_str:
+                        LOG.info("Jira: closed issue {}".format(jira_key))
+                        jira_connection.add_comment(jira_issue, "Alert {} deleted, closing jira ticket".format(alert.id))
+                        jira_connection.transition_issue(jira_issue, transition=t["id"])
+                        return True
+        return False
 
     def _get_jira_connection(self):
         return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
+
+    def _attach_jira_to_alert(self, alert: Alert, jira_key: str):
+        try:
+            # check if key is valid
+            jira_connection = self._get_jira_connection()
+            LOG.debug("Jira: attach issue, looking up key: {}".format(jira_key))
+            # check if jira ticket exists
+            issue = jira_connection.issue(jira_key)
+            if issue:
+                # attach jira ticket to alert
+                updated_alert = copy.deepcopy(alert)
+                updated_alert.attributes["jira"] = {
+                    "key": jira_key,
+                    "url": self.__create_jira_url(jira_key),
+                    "id": issue.id
+                }
+                return updated_alert
+        except JIRAError:
+            LOG.debug("Jira issue: {} not found".format(jira_key))
 
     def take_action(self, alert: Alert, action: str, text: str, **kwargs) -> Any:
         LOG.debug("Jira: take_action alert: {} action: {} text {}".format(alert.id, action, text))
@@ -163,21 +198,10 @@ class JiraCreate(PluginBase):
                 del updated_alert.attributes["jira"]
                 return updated_alert
         if action == "attachJira":
-            # check if key is valid
-            jira_connection = self._get_jira_connection()
-            LOG.debug("Jira: attach issue, looking up key: {}".format(text))
-            try:
-                # check if jira ticket exists
-                issue = jira_connection.issue(text)
-                if issue:
-                    # attach jira ticket to alert
-                    updated_alert = copy.deepcopy(alert)
-                    updated_alert.attributes["jira"] = {
-                        "key": text,
-                        "url": self.__create_jira_url(text),
-                        "id": issue.id
-                    }
-                    return updated_alert
-            except JIRAError:
-                LOG.debug("Jira issue: {} not found".format(text))
+            jira_key = text
+            # Also accept a URL string
+            if text.startswith("https:") or text.startswith("http:"):
+                jira_key = text.rsplit('/', 1)[-1]
+            return self._attach_jira_to_alert(alert=alert, jira_key=jira_key)
+
         return alert

@@ -33,6 +33,7 @@ class TestJiraPlugin(unittest.TestCase):
             "user": "test",
             "url": self.__get_default_url(),
             "api token": "test",
+            "finished transition": "Done",
             "triggers": [
                 {
                     "matches": matches,
@@ -48,6 +49,7 @@ class TestJiraPlugin(unittest.TestCase):
             "user": "test",
             "url": "http://wwww.example.com",
             "api token": "test",
+            "finished transition": "Done",
             "triggers": [
                 {
                     "matches": first_match,
@@ -76,7 +78,10 @@ class TestJiraPlugin(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.create_jira = JiraCreate(jira_config)
 
-        jira_config = {"user": "test", "url": "http://wwww.example.com", "api token": "test"}
+        jira_config = {"user": "test",
+                       "url": "http://wwww.example.com",
+                       "api token": "test",
+                       "finished transition": "Done"}
         self.create_jira = JiraCreate(jira_config)
 
     def __generate_alert_obj(self, status='new', duplicate_count=0):
@@ -250,10 +255,11 @@ class TestJiraPlugin(unittest.TestCase):
 
     def test_take_action_attach_jira(self):
         alert = self.__generate_alert_obj()
+        url = self.__get_browse_url(self.__get_default_url(),
+                                    self.__get_default_jira_key())
         jira_attributes = {'id': self.__get_default_jira_id(),
                            'key': self.__get_default_jira_key(),
-                           'url': self.__get_browse_url(self.__get_default_url(),
-                                                        self.__get_default_jira_key())}
+                           'url': url}
         alert.attributes['jira'] = jira_attributes
         jira_obj = self.__generate_jira_create_obj()
         jira_id = self.__get_default_jira_id()
@@ -271,6 +277,39 @@ class TestJiraPlugin(unittest.TestCase):
             assert alert != updated_alert
             # test that the jira id is added to the alert attributes
             self.__assert_jira_attributes_match_expected_jira_obj(jira_id, jira_key, updated_alert)
+
+        # test with url as jira key
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            mock_get_jira_connection.return_value.issue = MagicMock(return_value=jira_issue)
+            updated_alert = jira_obj.take_action(alert, "attachJira", url)
+            assert alert != updated_alert
+            # test that the jira id is added to the alert attributes
+            self.__assert_jira_attributes_match_expected_jira_obj(jira_id, jira_key, updated_alert)
+
+    def test_delete(self):
+        alert = self.__generate_alert_obj()
+        jira_attributes = {'id': self.__get_default_jira_id(),
+                           'key': self.__get_default_jira_key(),
+                           'url': self.__get_browse_url(self.__get_default_url(),
+                                                        self.__get_default_jira_key())}
+        alert.attributes['jira'] = jira_attributes
+        jira_obj = self.__generate_jira_create_obj()
+        jira_id = self.__get_default_jira_id()
+
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            mock_get_jira_connection.return_value.issue = MagicMock(return_value=jira_issue)
+            mock_get_jira_connection.return_value.transitions = MagicMock(return_value=[{'id': '1', 'name': 'Open'},
+                                                                                        {'id': '2', 'name': 'Done'}])
+            mock_get_jira_connection.return_value.add_comment = MagicMock()
+            mock_get_jira_connection.return_value.transition_issue = MagicMock()
+
+            is_deleted = jira_obj.delete(alert)
+            mock_get_jira_connection.return_value.add_comment.assert_called()
+            mock_get_jira_connection.return_value.transition_issue.assert_called_with(jira_issue, transition='2')
+            assert is_deleted
+
 
 if __name__ == '__main__':
     unittest.main()
