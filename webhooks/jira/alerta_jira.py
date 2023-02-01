@@ -1,3 +1,4 @@
+import logging
 
 # from alerta.models.alert import Alert
 from alerta.webhooks import WebhookBase
@@ -12,3 +13,4 @@ class JiraWebhook(WebhookBase):
         LOG.info("here!!")
         LOG.info(payload)
         LOG.info(query_string)
+        return {"response": "ok"}
