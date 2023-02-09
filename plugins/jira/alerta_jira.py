@@ -44,7 +44,7 @@ class JiraCreate(PluginBase):
         super().__init__()
 
     def _load_config_from_json(self):
-        LOG.debug("Jira: loading json config file: {}".format(JIRA_CONFIG_JSON))
+        LOG.debug(f"Jira: loading json config file: {JIRA_CONFIG_JSON}")
         # load json config
         jira_config_file = open(JIRA_CONFIG_JSON)
         return json.load(jira_config_file)
@@ -55,32 +55,24 @@ class JiraCreate(PluginBase):
         for required_property in required_properties:
             if required_property not in config:
                 raise RuntimeError(
-                    "missing property [{}] in config file ".format(required_property))
+                    f"missing property [{required_property}] in config file ")
 
     def __create_jira_url(self, key: str):
-        return "{url}/browse/{task}".format(url=self.jira_config["url"], task=key)
+        return f"{self.jira_config['url']}/browse/{key}"
 
     def _create_jira_ticket(self, alert: Alert, assignee: any):
         # create connection to jira api
         jira_connection = self._get_jira_connection()
         # get basic info from alert
         host = alert.resource.split(':')[0]
-        LOG.debug("Jira: HOST        {}".format(host))
-        chart = ".".join(alert.event.split('.')[:-1])
-        LOG.debug("Jira: CHART       {}".format(chart))
+        LOG.debug(f"Jira: HOST        {host}")
         event = alert.event.split('.')[-1]
-        LOG.debug("Jira: EVENT       {}".format(event))
+        LOG.debug(f"Jira: EVENT       {event}")
         # create jira ticket
-        LOG.info("JIRA: Creating Jira ticket for alert: {alert}".format(alert=alert.id))
+        LOG.info(f"JIRA: Creating Jira ticket for alert: {alert.id}")
 
-        summary = "Server {server}: alert {alert} in chart {chart} - Severity: {severity}". \
-            format(server=host.upper(),
-                   alert=alert.id.upper(),
-                   chart=chart.upper(),
-                   severity=alert.severity.upper())
-
-        description = "The chart {chart} INFO: {info}. \nVALUE: {value}.".format(chart=chart, info=alert.text,
-                                                                                 value=alert.value)
+        summary = f"Server {host.upper()}: alert {alert.id.upper()} in event {event.upper()} - Severity: {alert.severity.upper()}"
+        description = f"The event {event} INFO: {alert.text}. \nVALUE: {alert.value}."
 
         issue_dict = {
             'project': {'key': assignee["project"]},
@@ -91,14 +83,18 @@ class JiraCreate(PluginBase):
 
         task = jira_connection.create_issue(fields=issue_dict)
 
-        # add jira ticket info to event obj
-        alert.attributes = {'jira':
-            {
-                'url': self.__create_jira_url(task.key),
-                'key': task.key,
-                'id': task.id
-            }
+        jira_obj = {
+            'url': self.__create_jira_url(task.key),
+            'key': task.key,
+            'id': task.id
         }
+
+        if "user" in assignee:
+            jira_connection.assign_issue(task, assignee["user"])
+            jira_obj["user"] = assignee["user"]
+
+        alert.attributes = {'jira': jira_obj}
+
         return alert
 
     # reject or modify an alert before it hits the database
@@ -124,18 +120,24 @@ class JiraCreate(PluginBase):
             # if the alert is critical and don't duplicate, create task in Jira
             if alert.status not in ['ack', 'closed', 'shelved'] and alert.duplicate_count == 0:
                 LOG.info("Jira: Received an alert")
-                LOG.debug("Jira: ALERT       {}".format(alert))
-                LOG.debug("Jira: ID          {}".format(alert.id))
-                LOG.debug("Jira: RESOURCE    {}".format(alert.resource))
-                LOG.debug("Jira: EVENT       {}".format(alert.event))
-                LOG.debug("Jira: SEVERITY    {}".format(alert.severity))
-                LOG.debug("Jira: TEXT        {}".format(alert.text))
+                LOG.debug(f"Jira: ALERT       {alert}")
+                LOG.debug(f"Jira: ID          {alert.id}")
+                LOG.debug(f"Jira: RESOURCE    {alert.resource}")
+                LOG.debug(f"Jira: EVENT       {alert.event}")
+                LOG.debug(f"Jira: SEVERITY    {alert.severity}")
+                LOG.debug(f"Jira: TEXT        {alert.text}")
 
                 # iterate through configured triggers
                 for trigger in self.jira_config["triggers"]:
                     # the first match triggers jira issue creation
                     if self._check_trigger(trigger["matches"], alert):
-                        return self._create_jira_ticket(alert=alert, assignee=trigger["assignee"])
+                        # validate that resource doesn't have a jira ticket already
+                        jira_connection = self._get_jira_connection()
+                        issues = jira_connection.search_issues(jql_str=f"summary ~ {alert.resource} AND summary ~ {alert.event} AND NOT status ~ To Do")
+                        if len(issues) == 0:
+                            return self._create_jira_ticket(alert=alert, assignee=trigger["assignee"])
+                        else:
+                            LOG.info(f"Jira: Jira ticket already exists for resource: {alert.resource} with event: {alert.event}. Not creating a new one.")
         except Exception as ex:
             LOG.error('Jira: Failed to create task: %s', ex)
             LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
@@ -143,7 +145,7 @@ class JiraCreate(PluginBase):
 
     # triggered by external status changes, used by integrations
     def status_change(self, alert, status, text):
-        LOG.debug("Jira: status change: {} alert status: {} text: {}".format(alert.id, status, text))
+        LOG.debug(f"Jira: status change: {alert.id} alert status: {status} text: {text}")
         return alert
 
     def delete(self, alert: 'Alert', **kwargs) -> bool:
@@ -155,8 +157,8 @@ class JiraCreate(PluginBase):
                 transitions = jira_connection.transitions(jira_issue)
                 for t in transitions:
                     if t["name"] == self._jira_finished_transition_str:
-                        LOG.info("Jira: closed issue {}".format(jira_key))
-                        jira_connection.add_comment(jira_issue, "Alert {} deleted, closing jira ticket".format(alert.id))
+                        LOG.info(f"Jira: closed issue {jira_key}")
+                        jira_connection.add_comment(jira_issue, f"Alert {alert.id} deleted, closing jira ticket")
                         jira_connection.transition_issue(jira_issue, transition=t["id"])
                         return True
         return False
@@ -168,7 +170,7 @@ class JiraCreate(PluginBase):
         try:
             # check if key is valid
             jira_connection = self._get_jira_connection()
-            LOG.debug("Jira: attach issue, looking up key: {}".format(jira_key))
+            LOG.debug(f"Jira: attach issue, looking up key: {jira_key}")
             # check if jira ticket exists
             issue = jira_connection.issue(jira_key)
             if issue:
@@ -181,10 +183,10 @@ class JiraCreate(PluginBase):
                 }
                 return updated_alert
         except JIRAError:
-            LOG.debug("Jira issue: {} not found".format(jira_key))
+            LOG.debug(f"Jira issue: {jira_key} not found")
 
     def take_action(self, alert: Alert, action: str, text: str, **kwargs) -> Any:
-        LOG.debug("Jira: take_action alert: {} action: {} text {}".format(alert.id, action, text))
+        LOG.debug(f"Jira: take_action alert: {alert.id} action: {action} text {text}")
         if action == "createJira":
             # create connection to jira api
             data = json.loads(text)

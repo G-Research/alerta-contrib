@@ -13,7 +13,6 @@ class TestJiraPlugin(unittest.TestCase):
         return {
             "project": "THJ",
             "issue-type": "Task",
-            "assignee": "matcher@gmail.com"
         }
 
     def __get_default_jira_key(self):
@@ -217,12 +216,32 @@ class TestJiraPlugin(unittest.TestCase):
         jira_obj._get_jira_connection.assert_not_called()
         assert alert == updated_alert
 
-        # positive test
+        # positive tests
+
+        # no user assigned
         jira_obj = self.__generate_jira_create_obj()
         with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
             jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
             mock_get_jira_connection.return_value.create_issue = MagicMock(return_value=jira_issue)
             updated_alert = jira_obj.take_action(alert, "createJira", assignee_str)
+            mock_get_jira_connection.assert_called()
+            # test that the jira id is added to the alert attributes
+            self.__assert_jira_attributes_match_expected_jira_obj(jira_id, jira_key, updated_alert)
+            assert not mock_get_jira_connection.assign_issue.called
+
+        # user assigned
+        assignee_with_user = self.__get_default_asignee()
+        assignee_with_user["user"] = "test_user"
+        assignee_with_user_str = json.dumps(assignee_with_user)
+
+        jira_obj = self.__generate_jira_create_obj()
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            mock_get_jira_connection.return_value.create_issue = MagicMock(return_value=jira_issue)
+            assigned_jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            assigned_jira_issue.user = "test_user"
+            mock_get_jira_connection.return_value.assign_issue = MagicMock(return_value=assigned_jira_issue)
+            updated_alert = jira_obj.take_action(alert, "createJira", assignee_with_user_str)
             mock_get_jira_connection.assert_called()
             # test that the jira id is added to the alert attributes
             self.__assert_jira_attributes_match_expected_jira_obj(jira_id, jira_key, updated_alert)
@@ -310,6 +329,39 @@ class TestJiraPlugin(unittest.TestCase):
             mock_get_jira_connection.return_value.transition_issue.assert_called_with(jira_issue, transition='2')
             assert is_deleted
 
+    def test_post_receive(self):
+        # test not creating issues in ack state
+        alert = self.__generate_alert_obj(status="ack")
+        jira_attributes = {'id': self.__get_default_jira_id(),
+                           'key': self.__get_default_jira_key(),
+                           'url': self.__get_browse_url(self.__get_default_url(),
+                                                        self.__get_default_jira_key())}
+        alert.attributes['jira'] = jira_attributes
+        jira_obj = self.__generate_jira_create_obj()
+        jira_id = self.__get_default_jira_id()
+
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_obj.post_receive(alert)
+            mock_get_jira_connection.assert_not_called()
+
+        # test not creating duplicate issues
+        alert = self.__generate_alert_obj(status="new")
+        related_alert = self.__generate_alert_obj(status="ack")
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            mock_get_jira_connection.return_value.search_issues = MagicMock(return_value=[related_alert])
+            updated_alert = jira_obj.post_receive(alert)
+            mock_get_jira_connection.assert_called()
+            mock_get_jira_connection.create_issue.assert_not_called()
+
+        # test create issue
+        with mock.patch.object(jira_obj, '_get_jira_connection') as mock_get_jira_connection:
+            jira_issue = self.__create_jira_issue_mock(jira_id, self.__get_default_jira_key())
+            mock_get_jira_connection.return_value.search_issues = MagicMock(return_value=[])
+            mock_get_jira_connection.return_value.create_issue = MagicMock(return_value=jira_issue)
+            updated_alert = jira_obj.post_receive(alert)
+            mock_get_jira_connection.assert_called()
+            # test that the jira id is added to the alert attributes
+            self.__assert_jira_attributes_match_expected_jira_obj(jira_id, self.__get_default_jira_key(), updated_alert)
 
 if __name__ == '__main__':
     unittest.main()
