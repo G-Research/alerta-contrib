@@ -18,11 +18,7 @@ from alerta.plugins import PluginBase
 LOG = logging.getLogger('alerta.plugins.jira')
 
 # retrieve plugin configurations
-JIRA_CONFIG_JSON = app.config.get('ALERTA_JIRA_CONFIG') or os.environ.get(
-    'ALERTA_JIRA_CONFIG') or "alerta-jira-config.json"
-
-alert_properties = ["resource", "severity", "environment", "event", "service", "group", "value", "origin", "type",
-                    "text"]
+JIRA = app.config.get('JIRA') or os.environ.get('JIRA')
 
 class JiraCreate(PluginBase):
     """
@@ -32,28 +28,24 @@ class JiraCreate(PluginBase):
     _jira_finished_transition_str = "Done"
 
     def __init__(self):
-        self.jira_config = self._load_config_from_json()
+        print(app.config)
+        self.jira_config = JIRA
         self._validate_config_params(self.jira_config)
         super().__init__()
 
     def __init__(self, config={}):
         if config == {}:
-            config = self._load_config_from_json()
+            config = JIRA
+
         self.jira_config = config
         self._validate_config_params(self.jira_config)
         super().__init__()
 
-    def _load_config_from_json(self):
-        LOG.debug(f"Jira: loading json config file: {JIRA_CONFIG_JSON}")
-        # load json config
-        jira_config_file = open(JIRA_CONFIG_JSON)
-        return json.load(jira_config_file)
-
-    def _validate_config_params(self, config):
+    def _validate_config_params(self, configParams):
         # validate that required properties are defined
         required_properties = ["user", "url", "api token", "finished transition"]
         for required_property in required_properties:
-            if required_property not in config:
+            if required_property not in configParams:
                 raise RuntimeError(
                     f"missing property [{required_property}] in config file ")
 
