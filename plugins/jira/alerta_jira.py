@@ -18,8 +18,10 @@ from alerta.plugins import PluginBase
 LOG = logging.getLogger('alerta.plugins.jira')
 
 # retrieve plugin configurations
-JIRA = app.config.get('JIRA') or os.environ.get('JIRA')
+JIRA_CONFIG = app.config.get('JIRA') or os.environ.get('JIRA')
 
+alert_properties = ["resource", "severity", "environment", "event", "service", "group", "value", "origin", "type",
+                    "text"]
 class JiraCreate(PluginBase):
     """
     Jira alerta plugin
@@ -29,13 +31,13 @@ class JiraCreate(PluginBase):
 
     def __init__(self):
         print(app.config)
-        self.jira_config = JIRA
+        self.jira_config = JIRA_CONFIG
         self._validate_config_params(self.jira_config)
         super().__init__()
 
-    def __init__(self, config={}):
-        if config == {}:
-            config = JIRA
+    def __init__(self, config=None):
+        if config is None:
+            config = JIRA_CONFIG
 
         self.jira_config = config
         self._validate_config_params(self.jira_config)
@@ -176,6 +178,7 @@ class JiraCreate(PluginBase):
                 return updated_alert
         except JIRAError:
             LOG.debug(f"Jira issue: {jira_key} not found")
+            return alert
 
     def take_action(self, alert: Alert, action: str, text: str, **kwargs) -> Any:
         LOG.debug(f"Jira: take_action alert: {alert.id} action: {action} text {text}")
