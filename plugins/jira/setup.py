@@ -6,10 +6,10 @@ setup(
     name="alerta-jira",
     version=version,
     description='Alerta plugin for create tasks in jira',
-    url='https://github.com/alerta/alerta-contrib',
+    url='https://github.com/G-Research/alerta-contrib',
     license='MIT',
-    author='Alexandre Azedo',
-    author_email='aazedo@gocontact.pt',
+    author='James Kirsch',
+    author_email='headphonejames@gmail.com',
     packages=find_packages(),
     py_modules=['alerta_jira'],
     include_package_data=True,
@@ -18,5 +18,9 @@ setup(
         'alerta.plugins': [
             'jira = alerta_jira:JiraCreate'
         ]
-    }
+    },
+    install_requires=[
+        'jira',
+        'alerta'
+    ],
 )
