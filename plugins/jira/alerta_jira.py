@@ -30,7 +30,6 @@ class JiraCreate(PluginBase):
     _jira_finished_transition_str = "Done"
 
     def __init__(self):
-        print(app.config)
         self.jira_config = JIRA_CONFIG
         self._validate_config_params(self.jira_config)
         super().__init__()
