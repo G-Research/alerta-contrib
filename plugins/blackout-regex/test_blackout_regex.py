@@ -127,8 +127,8 @@ class Alert(Model):
 
 
 def _get_blackouts(**kwargs):
-    return [Blackout(**blackout) for blackout in BLACKOUTS]
-
+    return ([Blackout(**blackout) for blackout in BLACKOUTS])
+    # return BLACKOUTS
 
 app.db.get_blackouts = _get_blackouts
 
