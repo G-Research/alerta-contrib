@@ -8,11 +8,9 @@ Alerta plugin to enhance the blackout system.
 import re
 import logging
 
-from alerta.app import db
+from alerta.models.blackout import Blackout
 from alerta.plugins import PluginBase
 from alerta.exceptions import BlackoutPeriod
-
-from alerta.models.blackout import Blackout
 
 try:
     from alerta.plugins import app  # alerta >= 5.0
@@ -33,14 +31,13 @@ class BlackoutRegex(PluginBase):
     """
     def _fetch_blackouts(self):
         try:
-            count = db.get_blackouts_count()
+            # retrieve all blackouts from the DB.
+            # use the alerta blackout model to retrieve the blackouts.
+            # The model standardizes the data returned from mongodb and postgres db.
+            count = Blackout.count()
             log.debug(f"There are {count} Blackouts currently open")
-            # retrieve all blackouts from the DB
-            blackouts = db.get_blackouts(page=1, page_size=count)
-            # blackouts_dict = db.get_blackouts(page=1, page_size=count)
+            blackouts = Blackout.find_all(page=1, page_size=count)
             log.debug("Retrieved Blackouts from the DB:")
-            # convert the dict to a list of Blackout objects
-            # blackouts = [Blackout(**blackout) for blackout in blackouts_dict]
         except Exception:
             log.error("Unable to retrieve the Blackouts from the DB", exc_info=True)
             blackouts = []
@@ -80,7 +77,6 @@ class BlackoutRegex(PluginBase):
             log.debug(f"Checking blackout {alert_tags['regex_blackout']} which used to match this alert")
             for blackout in blackouts:
                 if blackout.id == alert_tags["regex_blackout"]:
-                    print(blackout)
                     if blackout.status == "active":
                         log.debug(
                             f"Blackout {blackout.id} is still active, setting alert {alert.id} "
