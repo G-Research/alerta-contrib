@@ -38,6 +38,7 @@ class BlackoutRegex(PluginBase):
             log.debug(f"There are {count} Blackouts currently open")
             blackouts = Blackout.find_all(page=1, page_size=count)
             log.debug("Retrieved Blackouts from the DB:")
+            log.debug(blackouts)
         except Exception:
             log.error("Unable to retrieve the Blackouts from the DB", exc_info=True)
             blackouts = []
