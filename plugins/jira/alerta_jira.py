@@ -30,7 +30,6 @@ class JiraCreate(PluginBase):
     _jira_finished_transition_str = "Done"
 
     def __init__(self):
-        print(app.config)
         self.jira_config = JIRA_CONFIG
         self._validate_config_params(self.jira_config)
         super().__init__()
@@ -45,7 +44,7 @@ class JiraCreate(PluginBase):
 
     def _validate_config_params(self, configParams):
         # validate that required properties are defined
-        required_properties = ["user", "url", "api token", "finished transition"]
+        required_properties = ["user", "url", "api token"]
         for required_property in required_properties:
             if required_property not in configParams:
                 raise RuntimeError(
@@ -142,6 +141,7 @@ class JiraCreate(PluginBase):
         LOG.debug(f"Jira: status change: {alert.id} alert status: {status} text: {text}")
         return alert
 
+    # ununsed for now
     def delete(self, alert: 'Alert', **kwargs) -> bool:
         if alert.attributes and 'jira' in alert.attributes:
             jira_key = alert.attributes["jira"]["key"]
