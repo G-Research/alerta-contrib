@@ -5,7 +5,6 @@ import os
 from jira import JIRA, JIRAError
 import re
 import traceback
-import sys
 from typing import Any
 from alerta.models.alert import Alert
 
