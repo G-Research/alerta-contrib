@@ -5,6 +5,7 @@ import os
 from jira import JIRA, JIRAError
 import re
 import traceback
+import sys
 from typing import Any
 from alerta.models.alert import Alert
 
@@ -158,7 +159,12 @@ class JiraCreate(PluginBase):
         return False
 
     def _get_jira_connection(self):
-        return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
+        try:
+            return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
+        except Exception as ex:
+            LOG.error('Jira: Failed to connect to Jira: %s', ex)
+            LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
+            raise ex
 
     def _attach_jira_to_alert(self, alert: Alert, jira_key: str):
         try:
