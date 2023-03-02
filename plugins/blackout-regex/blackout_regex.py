@@ -160,6 +160,14 @@ class BlackoutRegex(PluginBase):
                     continue
                 match = True
                 log.debug(f"{blackout.service[0]} matched {alert.service[0]}")
+            if blackout.text and alert.text:
+                if not re.search(blackout.text, alert.text):
+                    log.debug(
+                        f"{alert.text} doesn't match the blackout text {blackout.text}"
+                    )
+                    continue
+                match = True
+                log.debug(f"{blackout.text} matched {alert.text}")
             if blackout.tags and alert.tags:
                 blackout_tags = parse_tags(blackout.tags)
                 if not set(blackout_tags.keys()).issubset(set(alert_tags.keys())):

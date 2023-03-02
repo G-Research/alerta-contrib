@@ -138,7 +138,7 @@ class JiraCreate(PluginBase):
 
     # triggered by external status changes, used by integrations
     def status_change(self, alert, status, text):
-        LOG.debug(f"Jira: status change: {alert.id} alert status: {status} text: {text}")
+        LOG.debug(f"Jira: status change: {alert.id} alert status: {status} text: {text} attributes: {alert.attributes}")
         return alert
 
     # ununsed for now
@@ -158,8 +158,14 @@ class JiraCreate(PluginBase):
         return False
 
     def _get_jira_connection(self):
+        options = {}
+        if "no_verify_ssl" in self.jira_config and self.jira_config["no_verify_ssl"]:
+            options["verify"] = False
+        if "ssl_cert" in self.jira_config:
+            options["verify"] = self.jira_config["ssl_cert"]
+
         try:
-            return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
+            return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"], options=options)
         except Exception as ex:
             LOG.error('Jira: Failed to connect to Jira: %s', ex)
             LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
@@ -191,6 +197,12 @@ class JiraCreate(PluginBase):
             # create connection to jira api
             data = json.loads(text)
             return self._create_jira_ticket(alert=alert, assignee=data)
+        if action == "attachJira":
+            jira_key = text
+            # Also accept a URL string
+            if text.startswith("https:") or text.startswith("http:"):
+                jira_key = text.rsplit('/', 1)[-1]
+            return self._attach_jira_to_alert(alert=alert, jira_key=jira_key)
         if action == "detachJira":
             # check if jira is attached to ticket
             data = json.loads(text)
@@ -199,11 +211,4 @@ class JiraCreate(PluginBase):
                 updated_alert = copy.deepcopy(alert)
                 del updated_alert.attributes["jira"]
                 return updated_alert
-        if action == "attachJira":
-            jira_key = text
-            # Also accept a URL string
-            if text.startswith("https:") or text.startswith("http:"):
-                jira_key = text.rsplit('/', 1)[-1]
-            return self._attach_jira_to_alert(alert=alert, jira_key=jira_key)
-
         return alert
