@@ -86,6 +86,7 @@ BLACKOUTS = [
         "event": None,
         "group": None,
         "duration": 3600,
+        "text": None,
         "id": "7",
     },
 ]
@@ -128,7 +129,6 @@ class Alert(Model):
 
 def _get_blackouts(**kwargs):
     return ([Blackout(**blackout) for blackout in BLACKOUTS])
-    # return BLACKOUTS
 
 app.db.get_blackouts = _get_blackouts
 
@@ -140,6 +140,10 @@ from blackout_regex import BlackoutRegex  # pylama: ignore=E402
 
 log = logging.getLogger(__name__)
 
+def _create_blackout_regex():
+    test_obj = BlackoutRegex()
+    test_obj._fetch_blackouts = MagicMock(return_value=(_get_blackouts()))
+    return test_obj
 
 class TestEnhance(unittest.TestCase):
     def test_new_alert_no_match(self):
@@ -156,7 +160,7 @@ class TestEnhance(unittest.TestCase):
             tags=["test-tag"],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "open")
         self.assertEqual(test.tags, ["test-tag"])
@@ -175,7 +179,7 @@ class TestEnhance(unittest.TestCase):
             tags=[],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "blackout")
         self.assertEqual(test.tags, ["regex_blackout=7"])
@@ -194,7 +198,7 @@ class TestEnhance(unittest.TestCase):
             tags=[],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "blackout")
         self.assertEqual(test.tags, ["regex_blackout=1"])
@@ -213,7 +217,7 @@ class TestEnhance(unittest.TestCase):
             tags=[],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "blackout")
         self.assertEqual(test.tags, ["regex_blackout=2"])
@@ -232,7 +236,7 @@ class TestEnhance(unittest.TestCase):
             tags=["site=siteX", "role=router"],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "blackout")
         self.assertEqual(test.tags, ["site=siteX", "role=router", "regex_blackout=3"])
@@ -251,7 +255,7 @@ class TestEnhance(unittest.TestCase):
             tags=["site=siteX", "role=switch"],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "open")
         self.assertEqual(test.tags, ["site=siteX", "role=switch"])
@@ -270,7 +274,7 @@ class TestEnhance(unittest.TestCase):
             tags=["site=siteX"],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "blackout")
         self.assertEqual(test.tags, ["site=siteX", "regex_blackout=6"])
@@ -289,7 +293,7 @@ class TestEnhance(unittest.TestCase):
             tags=["site=siteX", "regex_blackout=5"],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "open")
         self.assertEqual(test.tags, ["site=siteX"])
@@ -308,7 +312,7 @@ class TestEnhance(unittest.TestCase):
             tags=["site=siteX", "regex_blackout=99"],
             status="open",
         )
-        test_obj = BlackoutRegex()
+        test_obj = _create_blackout_regex()
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "open")
         self.assertEqual(test.tags, ["site=siteX"])
