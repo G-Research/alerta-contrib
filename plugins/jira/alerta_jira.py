@@ -138,7 +138,7 @@ class JiraCreate(PluginBase):
 
     # triggered by external status changes, used by integrations
     def status_change(self, alert, status, text):
-        LOG.debug(f"Jira: status change: {alert.id} alert status: {status} text: {text}")
+        LOG.debug(f"Jira: status change: {alert.id} alert status: {status} text: {text} attributes: {alert.attributes}")
         return alert
 
     # ununsed for now
@@ -158,8 +158,14 @@ class JiraCreate(PluginBase):
         return False
 
     def _get_jira_connection(self):
+        options = {}
+        if "no_verify_ssl" in self.jira_config and self.jira_config["no_verify_ssl"]:
+            options["verify"] = False
+        if "ssl_cert" in self.jira_config:
+            options["verify"] = self.jira_config["ssl_cert"]
+
         try:
-            return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
+            return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"], options=options)
         except Exception as ex:
             LOG.error('Jira: Failed to connect to Jira: %s', ex)
             LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
