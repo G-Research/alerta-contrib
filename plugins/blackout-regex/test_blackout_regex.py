@@ -86,7 +86,6 @@ BLACKOUTS = [
         "event": None,
         "group": None,
         "duration": 3600,
-        "text": None,
         "id": "7",
     },
 ]
