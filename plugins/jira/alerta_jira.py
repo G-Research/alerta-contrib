@@ -44,11 +44,48 @@ class JiraCreate(PluginBase):
 
     def _validate_config_params(self, configParams):
         # validate that required properties are defined
-        required_properties = ["user", "url", "api token"]
+        required_properties = ["url"]
         for required_property in required_properties:
             if required_property not in configParams:
                 raise RuntimeError(
                     f"missing property [{required_property}] in config file ")
+        auth_methods = ["basic_auth", "token_auth"]
+        match = False
+        for auth_method in auth_methods:
+            if auth_method in configParams:
+                match = True
+        if not match:
+            raise RuntimeError(
+                f"missing auth method in config file, must be one of {auth_methods}")
+        if "basic_auth" in configParams:
+            basic_auth = configParams["basic_auth"]
+            if "username" not in basic_auth or "password" not in basic_auth:
+                raise RuntimeError(
+                    f"missing property [username] or [password] in basic_auth")
+        if "token_auth" in configParams:
+            token_auth = configParams["token_auth"]
+            if "token" not in token_auth:
+                raise RuntimeError(
+                    f"missing property [token] in token_auth")
+
+    def _get_jira_connection(self):
+        try:
+            options = {}
+            if "cert" in self.jira_config:
+                options = {'verify': self.jira_config["cert"]}
+                LOG.debug(f"Jira: use cert with authentication {options}")
+            if "basic_auth" in self.jira_config:
+                basic_auth = self.jira_config["basic_auth"]
+                LOG.debug("Jira: using basic auth")
+                return JIRA(basic_auth=(basic_auth["username"], basic_auth["password"]), server=self.jira_config["url"], options=options)
+            if "token_auth" in self.jira_config:
+                token_auth = self.jira_config["token_auth"]
+                LOG.debug("Jira: using api token")
+                return JIRA(token_auth=(token_auth["token"]), server=self.jira_config["url"],  options=options)
+        except Exception as ex:
+            LOG.error('Jira: Failed to connect to Jira: %s', ex)
+            LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
+            raise ex
 
     def __create_jira_url(self, key: str):
         return f"{self.jira_config['url']}/browse/{key}"
@@ -156,14 +193,6 @@ class JiraCreate(PluginBase):
                         jira_connection.transition_issue(jira_issue, transition=t["id"])
                         return True
         return False
-
-    def _get_jira_connection(self):
-        try:
-            return JIRA(basic_auth=(self.jira_config["user"], self.jira_config["api token"]), server=self.jira_config["url"])
-        except Exception as ex:
-            LOG.error('Jira: Failed to connect to Jira: %s', ex)
-            LOG.error(''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__)))
-            raise ex
 
     def _attach_jira_to_alert(self, alert: Alert, jira_key: str):
         try:

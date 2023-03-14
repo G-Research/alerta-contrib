@@ -29,9 +29,8 @@ class TestJiraPlugin(unittest.TestCase):
 
     def __get_jira_config_single_match(self, matches={"event": "http(.*)"}):
         return {
-            "user": "test",
+            "basic_auth": {"username": "test", "password": "test"},
             "url": self.__get_default_url(),
-            "api token": "test",
             "finished transition": "Done",
             "triggers": [
                 {
@@ -45,9 +44,8 @@ class TestJiraPlugin(unittest.TestCase):
                                       first_match={"event": "http(.*)"},
                                       second_match={"event": "sms(.*)"}):
         return {
-            "user": "test",
+            "basic_auth": {"username": "test", "password": "test"},
             "url": "http://wwww.example.com",
-            "api token": "test",
             "finished transition": "Done",
             "triggers": [
                 {
@@ -76,12 +74,31 @@ class TestJiraPlugin(unittest.TestCase):
         jira_config = {"url": "http://wwww.example.com", "api token": "test"}
         with self.assertRaises(RuntimeError):
             self.create_jira = JiraCreate(jira_config)
-
-        jira_config = {"user": "test",
+        jira_config = {"url": "http://wwww.example.com", "api token": "test", "auth": "basic"}
+        with self.assertRaises(RuntimeError):
+            self.create_jira = JiraCreate(jira_config)
+        jira_config = {"basic_auth": {"username": "test"},
                        "url": "http://wwww.example.com",
-                       "api token": "test",
+                       "finished transition": "Done"}
+        with self.assertRaises(RuntimeError):
+            self.create_jira = JiraCreate(jira_config)
+        jira_config = {"token_auth": {"username": "test"},
+                       "url": "http://wwww.example.com",
+                       "finished transition": "Done"}
+        with self.assertRaises(RuntimeError):
+            self.create_jira = JiraCreate(jira_config)
+
+        jira_config = {"token_auth": {"token": "test"},
+                       "url": "http://wwww.example.com",
                        "finished transition": "Done"}
         self.create_jira = JiraCreate(jira_config)
+    def test_get_jira_connection_with_cert(self):
+        config = {
+            "token_auth": {"token": "test"},
+            "cert": "/etc/ssl/certs/ca-certificates.crt",
+            "url": self.__get_default_url(),
+        }
+        self.create_jira = JiraCreate(config)
 
     def __generate_alert_obj(self, status='new', duplicate_count=0):
         return Alert(resource='test', event='http500', environment='test', severity='critical', service=['test'],
