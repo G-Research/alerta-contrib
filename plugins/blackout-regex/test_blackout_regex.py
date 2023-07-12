@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+import datetime
 import sys
 import logging
 import unittest
 
-from mock import MagicMock
+from unittest.mock import MagicMock
 
 app = sys.modules["alerta.app"] = MagicMock()
 app.db = MagicMock()
@@ -23,7 +24,7 @@ BLACKOUTS = [
     {
         "status": "active",
         "environment": "test",
-        "tags": [],
+        "tags": None,
         "service": ["service-([a-zA-Z])"],
         "resource": None,
         "event": None,
@@ -62,7 +63,7 @@ BLACKOUTS = [
         "event": None,
         "group": None,
         "duration": 3600,
-        "endTime": "1985-03-05T22:45:27.425Z",
+        "endTime": datetime.datetime(1985, 3, 5, 22, 45, 27, 425),
         "id": "5",
     },
     {
@@ -74,7 +75,7 @@ BLACKOUTS = [
         "event": "FPCDown",
         "group": None,
         "duration": 3600,
-        "endTime": "1985-03-05T22:45:27.425Z",
+        "endTime": datetime.datetime(1985, 3, 5, 22, 45, 27, 425),
         "id": "6",
     },
     {
@@ -126,9 +127,10 @@ class Alert(Model):
         self.status = status
 
 
-def _get_blackouts(**kwargs):
-    return ([Blackout(**blackout) for blackout in BLACKOUTS])
-    # return BLACKOUTS
+def _get_blackouts(*args, **kwargs):
+    # return [Blackout(**blackout) for blackout in BLACKOUTS]
+    return BLACKOUTS
+
 
 app.db.get_blackouts = _get_blackouts
 
@@ -312,3 +314,22 @@ class TestEnhance(unittest.TestCase):
         test = test_obj.pre_receive(alert)
         self.assertEqual(test.status, "open")
         self.assertEqual(test.tags, ["site=siteX"])
+
+    def test_new_alert_tags_none_no_match(self):
+        """
+        Test alert that doesn't match as not all the tags match.
+        """
+        alert = Alert(
+            id="no-match-tags",
+            environment="test",
+            resource="test::resource",
+            event="test-event",
+            group="test",
+            service=["test-service"],
+            tags=None,
+            status="open",
+        )
+        test_obj = BlackoutRegex()
+        test = test_obj.pre_receive(alert)
+        self.assertEqual(test.status, "open")
+        self.assertEqual(test.tags, [])

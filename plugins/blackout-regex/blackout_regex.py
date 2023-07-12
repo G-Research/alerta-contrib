@@ -29,6 +29,7 @@ class BlackoutRegex(PluginBase):
     Blackout Regex alerta plugin
     Allow regex blackouts to be applied to alerts.
     """
+
     def _fetch_blackouts(self):
         try:
             # retrieve all blackouts from the DB.
@@ -60,13 +61,23 @@ class BlackoutRegex(PluginBase):
             # perhaps something else too?) - for whatever reason.
             return alert
 
-        if alert.status == "closed" or alert.status == "expired" or alert.status == "shelved":
+        if (
+            alert.status == "closed"
+            or alert.status == "expired"
+            or alert.status == "shelved"
+        ):
             log.debug(f"Alert {alert.id} status is {alert.status}: ignoring")
             return alert
 
         blackouts = self._fetch_blackouts()
 
-        NOTIFICATION_BLACKOUT = self.get_config('NOTIFICATION_BLACKOUT', default=False, type=bool, **kwargs)
+        NOTIFICATION_BLACKOUT = self.get_config(
+            "NOTIFICATION_BLACKOUT", default=False, type=bool, **kwargs
+        )
+
+        if alert.tags is None:
+            alert.tags = []
+            log.debug("Alert tags was None, corrected.")
 
         alert_tags = parse_tags(alert.tags)
 
@@ -75,7 +86,9 @@ class BlackoutRegex(PluginBase):
         # This facilitates the blackout matching, by simply checking if the
         # blackout is still open.
         if "regex_blackout" in alert_tags:
-            log.debug(f"Checking blackout {alert_tags['regex_blackout']} which used to match this alert")
+            log.debug(
+                f"Checking blackout {alert_tags['regex_blackout']} which used to match this alert"
+            )
             for blackout in blackouts:
                 if blackout.id == alert_tags["regex_blackout"]:
                     if blackout.status == "active":
@@ -108,6 +121,11 @@ class BlackoutRegex(PluginBase):
             # matching fails.
             log.debug("Evaluating blackout")
             log.debug(blackout)
+
+            if blackout.tags is None:
+                blackout.tags = []
+                log.debug("Blackout tags was None, corrected.")
+
             match = False
             if blackout.environment:
                 if not re.search(blackout.environment, alert.environment):
@@ -116,9 +134,7 @@ class BlackoutRegex(PluginBase):
                     )
                     continue
                 match = True
-                log.debug(
-                    f"{blackout.environment} matched {alert.environment}"
-                )
+                log.debug(f"{blackout.environment} matched {alert.environment}")
             if blackout.group:
                 if not re.search(blackout.group, alert.group):
                     log.debug(
@@ -160,11 +176,14 @@ class BlackoutRegex(PluginBase):
                     continue
                 match = True
                 log.debug(f"{blackout.service[0]} matched {alert.service[0]}")
-            if blackout.tags and alert.tags:
+            if blackout.tags or alert.tags:
                 blackout_tags = parse_tags(blackout.tags)
                 if not set(blackout_tags.keys()).issubset(set(alert_tags.keys())):
                     # The blackout must have at least as many tags as the alert
                     # in order to match.
+                    log.debug(
+                        f"keys of blackout_tags '{blackout_tags.keys()}' and alert_tags '{alert_tags.keys()}' do not match"
+                    )
                     continue
                 if not all(
                     [
@@ -174,16 +193,20 @@ class BlackoutRegex(PluginBase):
                     ]
                 ):
                     log.debug(
-                        "%s don't seem to match the blackout tag(s) %s",
-                        str(alert_tags),
-                        str(blackout_tags),
+                        f"alert tags '{alert_tags}' don't seem to match the blackout tag(s) '{blackout_tags}'"
                     )
                     continue
                 match = True
+            else:
+                log.debug(
+                    f"either blackout.tags '{blackout.tags}' or alert.tags '{alert.tags}' is empty or None"
+                )
             if match:
                 if not NOTIFICATION_BLACKOUT:
-                    log.debug(f'Suppressed alert during blackout period (id={alert.id})')
-                    raise BlackoutPeriod('Suppressed alert during blackout period')
+                    log.debug(
+                        f"Suppressed alert during blackout period (id={alert.id})"
+                    )
+                    raise BlackoutPeriod("Suppressed alert during blackout period")
 
                 log.debug(
                     f"Alert {alert.id} seems to match (regex) blackout {blackout.id}. "
