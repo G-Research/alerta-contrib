@@ -3,6 +3,10 @@ Jira Plugin
 
 Creates a task in Jira and adds the Jira Task attribute in alarm. The created attribute is a link to the Jira task and opens in a new tab.
 
+The integration works in 2 ways:
+Automated mode (i.e. a Jira issue is raised automatically from an incoming Alerta alert based on certain matching alert field criteria)
+Manual mode (i.e. a Jira issue is raised for a given Alerta alert when a NetOps operator clicks on a "Create Jira" button and selects a Jira Project on the alert details part of the UI)
+In both the above cases, on successful creation of a Jira issue, the "Jira" alert field will contain a link to the new Jira issue:
 
 Installation
 ------------
@@ -23,15 +27,36 @@ Configuration
 -------------
 
 Add `jira` to the list of enabled `PLUGINS` in `alertad.conf` server
-configuration file and set plugin-specific variables either in the
-server configuration file or as environment variables.
+configuration file and set plugin-specific variables in the
+server configuration file.
+
+The "triggers" config applies only to Jira issues that are raised automatically based on alert field values
 
 ```python
 PLUGINS = ['jira']
-JIRA_PROJECT = '' #project name in jira
-JIRA_URL = ''     #url access to the jira 
-JIRA_USER = ''    #defined to the according to the jira access data
-JIRA_PASS = ''    #defined to the according to the jira access data
+
+JIRA = {
+    "token_auth": { "token": "<some valid token>" }, 
+    "url": "<jira url>", 
+    "no_verify_ssl": <"True" or "False">,
+    "finished transition": "Done", 
+    "triggers": [{ 
+        "matches": {"<alert field>": "<alert field value>"}, 
+        "assignee": {"project": "<jira project name>", "issue-type": "<e.g. Task>"}
+        }
+    ]
+}
+
+Add configuration to the web config.json file to display drop-down values for the "Create Jira" button in the alert details part of the UI.
+
+"jira": {
+      "assignees": [
+        {
+          "project": "<some Jira project>",
+          "issue-type": "Task"
+        }
+      ]
+  }
 ```
 
 Troubleshooting

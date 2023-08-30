@@ -80,6 +80,8 @@ class JiraCreate(PluginBase):
                 return JIRA(basic_auth=(basic_auth["username"], basic_auth["password"]), server=self.jira_config["url"], options=options)
             if "token_auth" in self.jira_config:
                 token_auth = self.jira_config["token_auth"]
+                if "no_verify_ssl" in self.jira_config and self.jira_config["no_verify_ssl"]:
+                    options = {'verify': False}
                 LOG.debug("Jira: using api token")
                 return JIRA(token_auth=(token_auth["token"]), server=self.jira_config["url"],  options=options)
         except Exception as ex:
@@ -88,7 +90,7 @@ class JiraCreate(PluginBase):
             raise ex
 
     def __create_jira_url(self, key: str):
-        return f"{self.jira_config['url']}/browse/{key}"
+        return f"{self.jira_config['url']}browse/{key}"
 
     def _create_jira_ticket(self, alert: Alert, assignee: any):
         # create connection to jira api
@@ -101,15 +103,26 @@ class JiraCreate(PluginBase):
         # create jira ticket
         LOG.info(f"JIRA: Creating Jira ticket for alert: {alert.id}")
 
-        summary = f"Server {host.upper()}: alert {alert.id.upper()} in event {event.upper()} - Severity: {alert.severity.upper()}"
-        description = f"The event {event} INFO: {alert.text}. \nVALUE: {alert.value}."
+        # Specify format for summary and description fields
+        summary = f"Severity: {alert.severity}: Resource {host} Event {event} - "
+        description = f"ALERTA: Resource: {host} Event: {event} \n Text: {alert.text}. \n Alert ID {alert.id}"
 
         issue_dict = {
             'project': {'key': assignee["project"]},
-            "summary": summary,
-            "description": description,
-            'issuetype': {'name': assignee["issue-type"]},
+            'summary': summary,
+            'description': description,
+            'issuetype': {'name': assignee["issue-type"]}
         }
+        
+        # check for customfields from the alertad.conf config file.....
+        customfields = assignee["customfields"]
+        if customfields:
+            for custom_key, custom_value in customfields.items():
+                LOG.debug(f"Custom Field Key: {custom_key}, Value: {custom_value}")
+                issue_dict[custom_key] = custom_value
+
+        for key, value in issue_dict.items():
+            LOG.info(f"Issue Dict; Key: {key}, Value: {value}")
 
         task = jira_connection.create_issue(fields=issue_dict)
 
@@ -137,11 +150,14 @@ class JiraCreate(PluginBase):
                 prop_value = getattr(alert, alert_property)
                 if prop_value:
                     # check if property is a list or a string
+                    LOG.debug(f"Jira: prop_value       {prop_value}")
                     if isinstance(prop_value, list):
                         for value in prop_value:
+                            LOG.debug(f"Jira: value       {value}")
                             if not re.search(trigger[alert_property], value):
                                 return False
                     elif not re.search(trigger[alert_property], prop_value):
+                        LOG.debug(f"Jira: checking trigger string       {trigger[alert_property]} : {prop_value}")                        
                         return False
         return True
 
@@ -163,7 +179,7 @@ class JiraCreate(PluginBase):
                     if self._check_trigger(trigger["matches"], alert):
                         # validate that resource doesn't have a jira ticket already
                         jira_connection = self._get_jira_connection()
-                        issues = jira_connection.search_issues(jql_str=f"summary ~ {alert.resource} AND summary ~ {alert.event} AND NOT status ~ To Do")
+                        issues = jira_connection.search_issues(jql_str=f"summary ~ {alert.resource} AND summary ~ {alert.event} AND NOT status = 'Closed'")
                         if len(issues) == 0:
                             return self._create_jira_ticket(alert=alert, assignee=trigger["assignee"])
                         else:
