@@ -115,7 +115,6 @@ class JiraCreate(PluginBase):
         }
         
         # check for customfields from the alertad.conf config file.....
-        #customfields = assignee["customfields"]
         customfields = assignee.get("customfields", None)        
         if customfields:
             for custom_key, custom_value in customfields.items():
