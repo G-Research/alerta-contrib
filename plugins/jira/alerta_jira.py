@@ -115,11 +115,17 @@ class JiraCreate(PluginBase):
         }
         
         # check for customfields from the alertad.conf config file.....
-        customfields = assignee["customfields"]
+        customfields = assignee.get("customfields", None)        
         if customfields:
             for custom_key, custom_value in customfields.items():
                 LOG.debug(f"Custom Field Key: {custom_key}, Value: {custom_value}")
                 issue_dict[custom_key] = custom_value
+                
+        # check for components field from the alertad.conf config file.....
+        components = assignee.get("components", None)
+        if components:
+            LOG.debug(f"Components Field Key: components, Value: {components}")
+            issue_dict["components"] = [components]                
 
         for key, value in issue_dict.items():
             LOG.info(f"Issue Dict; Key: {key}, Value: {value}")
